@@ -1,26 +1,21 @@
-//初始化，运动函数
 #include "Encoders.h"
 #include "Kinematics.h"
 #include "Motors.h"
 #include "LineSensors.h"
 #include "PID.h"
-#include "Magnetometer.h"
 #include "filter.h"
 
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
-#define NUM_DIRECTION 3
 #define NUM_IRS 3
 
-//实例化
 Kinematics_c pose;
 Motors_c motors;
 LineSensors_c linesensors;
 PID_c pid_left;
 PID_c pid_right;
 PID_c pid_spin;
-PID_c pid_track;
-Magnetometer_c magnetometer;  
+PID_c pid_track; 
 Filter_c filter_left;
 Filter_c filter_right;
 
@@ -51,28 +46,15 @@ class motion_c{
    float tracking_x_diff;
    float tracking_y_diff;
    float angle_diff;
-   unsigned long puck_ts;
-   unsigned long last_puck_ts;
-   float mag_value;
-   unsigned long calibration_ts;
-   bool calibration_init;
   
   public:
     float left_speed;
     float right_speed;
-    bool is_puck;
 
     // arrays for IR-sensor calibration
     int irsMAX[NUM_IRS];
     int irsMIN[NUM_IRS];
     int irsRANGE[NUM_IRS];
-
-    // arrays for magnetometer calibration
-    int axisMAX[NUM_AXIS];
-    int axisMIN[NUM_AXIS];
-    int axisRANGE[NUM_AXIS];
-    float axisOFFSET[NUM_AXIS];
-    float axisSCALE[NUM_AXIS];
     
     motion_c(){
     }
@@ -86,10 +68,8 @@ class motion_c{
       filter_right.initialise();
       pid_speed_control_ts = millis();
       last_pid_speed_control_ts = millis();
-      calibration_init = true;
       pose_est_ts = millis();
       last_pose_est_ts = millis();
-      calibration_ts = millis();
       setupEncoder0();
       motors.initialise();
       setupEncoder1();
@@ -104,11 +84,6 @@ class motion_c{
       stopping_init = true;
       end_finished = false;
       moving_ts = millis();
-      puck_ts = millis();
-      is_puck = false;
-      last_puck_ts = millis();
-      mag_value = 0.0;
-      magnetometer.initialise();
       linesensors.initialiseForADC();
       pid_left.initialise(90, 0.52, 0.01);
       pid_right.initialise(90, 0.5, 0);
@@ -138,7 +113,6 @@ class motion_c{
     }
     
     void reset_pid(){
-
       pid_left.reset();
       pid_right.reset();
       pid_spin.reset();
@@ -290,85 +264,6 @@ class motion_c{
       }
     }
 
-    bool puck(){
-      puck_ts = millis();
-      if (puck_ts - last_puck_ts >= 10) {
-        mag_value = 0;
-        magnetometer.calcCalibrated(axisOFFSET, axisSCALE);
-        for(int DIRECTION = 0; DIRECTION < NUM_DIRECTION; DIRECTION++){
-          mag_value += magnetometer.calibrated[DIRECTION] * magnetometer.calibrated[DIRECTION];
-        }
-        mag_value = sqrt(mag_value);
-        if(mag_value >= 2.3){
-          last_puck_ts = puck_ts;
-          return true;
-        }
-        else if(mag_value < 2.3){
-          last_puck_ts = puck_ts;
-          return false;
-        }
-      }
-    }
-
-    bool calibration(){
-      static bool is_end;
-      if(calibration_init){
-        for(int ir = 0; ir < NUM_IRS; ir++){
-        irsMAX[ir] = 0;
-        irsMIN[ir] = 1023; 
-        }
-        for(int axe = 0; axe < NUM_AXIS; axe++){
-          axisMAX[axe] = -9999;
-          axisMIN[axe] = 9999;
-        } 
-        calibration_init = false;
-        calibration_ts = millis();
-        is_end = false;
-      }
-      if(!is_end){
-        spin(2*PI);
-        is_end = check_spin();
-        if(millis() - calibration_ts > 10){
-          calibration_ts = millis();
-          for(int i=0; i < 3; i++){
-          linesensors.readSensorsADC();
-          }
-          magnetometer.get_mag_readings();
-        
-          for(int ir = 0; ir < NUM_IRS; ir++){
-            if(linesensors.readings[ir] > irsMAX[ir]){
-              irsMAX[ir] = linesensors.readings[ir];
-            }
-            if(linesensors.readings[ir] < irsMIN[ir]){
-              irsMIN[ir] = linesensors.readings[ir];
-            }
-          }
-
-          for(int axe = 0; axe < NUM_AXIS; axe++){
-            if(magnetometer.readings[axe] > axisMAX[axe]){
-              axisMAX[axe] = magnetometer.readings[axe];
-            }
-            if(magnetometer.readings[axe] < axisMIN[axe]){
-              axisMIN[axe] = magnetometer.readings[axe];
-            }
-          }
-        }
-      }
-      else{
-        motors.setPWM(0.0, 0.0);
-        reset_pid();
-        for(int ir = 0; ir < NUM_IRS; ir++){
-          irsRANGE[ir] = irsMAX[ir] - irsMIN[ir];
-        }
-        for(int axe = 0; axe < NUM_AXIS; axe++){
-          axisRANGE[axe] = axisMAX[axe] - axisMIN[axe];
-          axisOFFSET[axe] = ((float)axisMIN[axe] + (float)(axisRANGE[axe]/2.0));
-          axisSCALE[axe] = 1.0/(float)(axisRANGE[axe]/2.0);
-        }
-        return true;
-      }
-      return false;
-    }
 
     bool detect_black(){
       linesensors.calcCalibratedADC(irsMIN, irsRANGE);
@@ -390,6 +285,3 @@ class motion_c{
     }
     
 };
-
-
-    
