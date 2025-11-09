@@ -7,7 +7,7 @@
 
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
-#define NUM_IRS 3
+#define NUM_IRS 5
 
 Kinematics_c pose;
 Motors_c motors;
@@ -28,6 +28,7 @@ class motion_c{
    unsigned long last_speed_timestap = 0;
    unsigned long pid_speed_control_ts = 0;
    unsigned long last_pid_speed_control_ts = 0;
+   unsigned long calibration_ts = 0;
    long last_count_RIGHT;
    long last_count_LEFT;
    float left_pid_pwm;
@@ -46,7 +47,8 @@ class motion_c{
    float tracking_x_diff;
    float tracking_y_diff;
    float angle_diff;
-  
+   bool calibration_init;
+     
   public:
     float left_speed;
     float right_speed;
@@ -84,6 +86,8 @@ class motion_c{
       stopping_init = true;
       end_finished = false;
       moving_ts = millis();
+      calibration_ts = millis();
+      calibration_init = true;
       linesensors.initialiseForADC();
       pid_left.initialise(90, 0.52, 0.01);
       pid_right.initialise(90, 0.5, 0);
@@ -265,17 +269,19 @@ class motion_c{
     }
 
 
-    bool detect_black(){
+    void detect_light(){
       linesensors.calcCalibratedADC(irsMIN, irsRANGE);
-      int results = 0;
+    }
+
+    void print_irs(){
       for(int ir = 0; ir < NUM_IRS; ir++){
-        results = (results << 1) | ((int)linesensors.readings_bool[ir]);
-      }
-      if(results != 0){
-        return true;
-      }
-      else{
-        return false;
+        if(ir < NUM_IRS-1){
+          Serial.print(linesensors.calibrated[ir]);
+          Serial.print(",");
+        }
+        else{
+          Serial.println(linesensors.calibrated[ir]);
+        }
       }
     }
 
@@ -283,8 +289,46 @@ class motion_c{
       turn_finished = false;
       end_finished = false;
     }
+
+    bool calibration(){
+      static bool is_end;
+      if(calibration_init){
+        for(int ir = 0; ir < NUM_IRS; ir++){
+        irsMAX[ir] = 0;
+        irsMIN[ir] = 1023; 
+        }
+        calibration_init = false;
+        calibration_ts = millis();
+        is_end = false;
+      }
+      if(!is_end){
+        spin(2*PI);
+        is_end = check_spin();
+        if(millis() - calibration_ts > 10){
+          calibration_ts = millis();
+          for(int i=0; i < 3; i++){
+          linesensors.readSensorsADC();
+          }
+        
+          for(int ir = 0; ir < NUM_IRS; ir++){
+            if(linesensors.readings[ir] > irsMAX[ir]){
+              irsMAX[ir] = linesensors.readings[ir];
+            }
+            if(linesensors.readings[ir] < irsMIN[ir]){
+              irsMIN[ir] = linesensors.readings[ir];
+            }
+          }
+        }
+      }
+      else{
+        motors.setPWM(0.0, 0.0);
+        reset_pid();
+        for(int ir = 0; ir < NUM_IRS; ir++){
+          irsRANGE[ir] = irsMAX[ir] - irsMIN[ir];
+        }
+        return true;
+      }
+      return false;
+    }
     
 };
-
-
-    

@@ -1,9 +1,9 @@
 #ifndef _LINESENSORS_H
 #define _LINESENSORS_H
 
-#define NUM_SENSORS 3
+#define NUM_SENSORS 5
 #define EMIT_PIN 11
-const int sensor_pins[ NUM_SENSORS ] = { A0, A2, A3};
+const int sensor_pins[ NUM_SENSORS ] = { A11, A0, A2, A3, A4};
 
 
 // Class to operate the linesensors.
@@ -11,7 +11,7 @@ class LineSensors_c {
   
   public:
 
-    float readings[NUM_SENSORS];  // for ADC 
+    float readings[ NUM_SENSORS ];  // for ADC 
     float minimum[ NUM_SENSORS ];
     float maximum[ NUM_SENSORS ];
     float scaling[ NUM_SENSORS ];
@@ -66,6 +66,63 @@ class LineSensors_c {
       }
       
     } // End of calcCalibratedADC()
+
+
+        // Part of the Advanced Exercises for Labsheet 2
+    void initialiseForDigital() {
+      pinMode( EMIT_PIN, OUTPUT );
+      digitalWrite( EMIT_PIN, HIGH );
+      is_charging = true;
+      charging_ts = 0;
+      discharging_ts = 0;
+      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
+        discharging_done[sensor] = false; 
+      }
+    } // End of initialiseForDigital()
+    
+    void readSensorsDigital() {
+      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
+        // start cjharging
+        if(is_charging){
+          pinMode(sensor_pins[sensor], OUTPUT);
+          digitalWrite(sensor_pins[sensor], HIGH);
+          charging_ts = micros();
+          is_charging = !is_charging; 
+        }
+        // discharging
+        if(!is_charging && micros() - charging_ts >= 20){
+          discharging_ts = micros();
+          pinMode(sensor_pins[sensor], INPUT);
+          int elapsed;
+          while(digitalRead(sensor_pins[sensor]) != LOW && elapsed <= 2000){
+            elapsed = micros() - discharging_ts;
+          }
+          // unsigned long elapsed = micros() - discharge_start_ts;
+          if(digitalRead(sensor_pins[sensor]) == LOW){  // finished or overtime
+            readings[sensor] = elapsed;
+          }
+          else if(elapsed >= 2000){
+            elapsed = 2000;
+            readings[sensor] = elapsed;
+          }
+          is_charging = !is_charging; 
+        }
+        delayMicroseconds(30);
+      }
+      calcCalibratedDigital();
+
+    } // End of readSensorsDigital()
+
+    void calcCalibratedDigital(){
+      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
+        if(readings[sensor] < 1500){
+          readings_bool[sensor] = false;  // white
+        }
+        else{
+          readings_bool[sensor] = true;  // black
+        }
+      }
+    }
 
 };
 
