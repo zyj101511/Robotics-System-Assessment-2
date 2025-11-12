@@ -18,14 +18,16 @@ extern volatile long count_LEFT;
 // to calibrate these to get the best
 // performance. (see Labsheet 4)
  float count_per_rev = 358.3;   // From documentation - correct.
- float wheel_radius  = 16.2;    // mm, confirmed by user    // mm, confirmed by user    // mm, could vary - calibrate.
- float wheel_sep     = 42.29;     // mm, confirmed by user     // mm, confirmed by user    // mm, from centre of robot to wheel centre 
+ float wheel_radius  = 16.25;    // mm, confirmed by user    // mm, confirmed by user    // mm, could vary - calibrate.
+ float wheel_sep     = 43;     // mm, confirmed by user     // mm, confirmed by user    // mm, from centre of robot to wheel centre 
                                      //     - could vary, calibrate
 
 // Take the circumference of the wheel and divide by the 
 // number of counts per revolution. This provides the mm
 // travelled per encoder count.
  float mm_per_count  = ( 2.0 * wheel_radius * PI ) / count_per_rev;
+ const float LEFT_WHEEL_CORRECT  = 1;
+ const float RIGHT_WHEEL_CORRECT = 1;
 
 // Class to track robot position.
 class Kinematics_c {
@@ -65,7 +67,7 @@ class Kinematics_c {
       
         long delta_LEFT;  // change in counts
         long delta_RIGHT;  // change in counts
-        float mean_delta;
+        // float mean_delta;
          
         float x_contribution;   // linear translation
         float th_contribution;  // rotation
@@ -80,16 +82,13 @@ class Kinematics_c {
         last_RIGHT = count_RIGHT;
         
         // Work out x contribution in local frame.
-        mean_delta = (float)delta_LEFT;
-        mean_delta += (float)delta_RIGHT;
-        mean_delta /= 2.0;
+        float delta_left = delta_LEFT * LEFT_WHEEL_CORRECT;
+        float delta_right = delta_RIGHT * RIGHT_WHEEL_CORRECT;
 
-        x_contribution = mean_delta * mm_per_count;
+        x_contribution = (mm_per_count * (delta_left + delta_right)) / 2.0 ;
 
         // Work out rotation in local frame
-        th_contribution = (float)delta_RIGHT;
-        th_contribution -= (float)delta_LEFT;
-        th_contribution *= mm_per_count;
+        th_contribution = mm_per_count * (delta_right - delta_left);
         th_contribution /= (wheel_sep *2.0);
 
 

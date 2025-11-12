@@ -1,9 +1,9 @@
 #ifndef _LINESENSORS_H
 #define _LINESENSORS_H
 
-#define NUM_SENSORS 5
+#define NUM_SENSORS 7
 #define EMIT_PIN 11
-const int sensor_pins[ NUM_SENSORS ] = { A11, A0, A2, A3, A4};
+const int sensor_pins[ NUM_SENSORS ] = { A11, A0, A2, A3, A4, 4, 5};
 
 
 // Class to operate the linesensors.
@@ -31,8 +31,7 @@ class LineSensors_c {
 
     void initialiseForADC() {
 
-      pinMode( EMIT_PIN, OUTPUT );
-      digitalWrite( EMIT_PIN, HIGH );
+      pinMode( EMIT_PIN, INPUT );  // turn IR off
       for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
         pinMode( sensor_pins[sensor], INPUT_PULLUP );
       }
@@ -41,7 +40,7 @@ class LineSensors_c {
 
     void readSensorsADC() {
 
-      initialiseForADC();
+      // initialiseForADC();
 
       for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
         readings[sensor] = analogRead(sensor_pins[sensor]);
@@ -70,8 +69,7 @@ class LineSensors_c {
 
         // Part of the Advanced Exercises for Labsheet 2
     void initialiseForDigital() {
-      pinMode( EMIT_PIN, OUTPUT );
-      digitalWrite( EMIT_PIN, HIGH );
+      pinMode( EMIT_PIN, INPUT );
       is_charging = true;
       charging_ts = 0;
       discharging_ts = 0;
@@ -102,19 +100,20 @@ class LineSensors_c {
             readings[sensor] = elapsed;
           }
           else if(elapsed >= 2000){
-            elapsed = 2000;
+            //elapsed = 2000;
             readings[sensor] = elapsed;
           }
           is_charging = !is_charging; 
         }
         delayMicroseconds(30);
       }
-      calcCalibratedDigital();
 
     } // End of readSensorsDigital()
 
-    void calcCalibratedDigital(){
+    void calcCalibratedDigital(int sensorsMIN[NUM_SENSORS], int sensorsRANGE[NUM_SENSORS]){
+      readSensorsDigital();
       for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
+        calibrated[sensor] = (readings[sensor] - sensorsMIN[sensor]) / (float)sensorsRANGE[sensor];
         if(readings[sensor] < 1500){
           readings_bool[sensor] = false;  // white
         }

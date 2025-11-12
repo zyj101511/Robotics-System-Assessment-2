@@ -10,7 +10,7 @@ bool finish_calibration = false;
 void setup() {
   delay(2000);
   motion.initialise(0, 0, 0);
-  currentState = CALIBRATION;
+  currentState = FOLLOW;
 }
 
 void loop() {

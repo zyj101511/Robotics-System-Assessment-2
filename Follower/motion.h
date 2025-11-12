@@ -7,7 +7,7 @@
 
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
-#define NUM_IRS 5
+#define NUM_IRS 7
 
 Kinematics_c pose;
 Motors_c motors;
@@ -89,9 +89,9 @@ class motion_c{
       calibration_ts = millis();
       calibration_init = true;
       linesensors.initialiseForADC();
-      pid_left.initialise(90, 0.52, 0.01);
-      pid_right.initialise(90, 0.5, 0);
-      pid_spin.initialise(90, 0.3, 0.01);
+      pid_left.initialise(90, 0.52, 0.12);
+      pid_right.initialise(90, 0.5, 0.1);
+      pid_spin.initialise(90, 0.2, 0.1);
       pid_track.initialise(90, 0.3, 0.0);
       reset_pid();
     }
@@ -158,10 +158,10 @@ class motion_c{
       }
     }
     
-    void spin(float target_angle){
+    void spin(float target_angle, float max_speed = 0.1){
       raw_diff = target_angle - pose.raw_theta;
       float demand_spin_speed = pid_spin.update(0, raw_diff);
-      demand_spin_speed = motors.limit(demand_spin_speed, MAX_SPEED);
+      demand_spin_speed = motors.limit(demand_spin_speed, max_speed);
       pid_speed_control(demand_spin_speed, -demand_spin_speed);
     }
 
@@ -270,17 +270,17 @@ class motion_c{
 
 
     void detect_light(){
-      linesensors.calcCalibratedADC(irsMIN, irsRANGE);
+      linesensors.calcCalibratedDigital(irsMIN, irsRANGE);
     }
 
     void print_irs(){
       for(int ir = 0; ir < NUM_IRS; ir++){
         if(ir < NUM_IRS-1){
-          Serial.print(linesensors.calibrated[ir]);
+          Serial.print(linesensors.readings[ir]);
           Serial.print(",");
         }
         else{
-          Serial.println(linesensors.calibrated[ir]);
+          Serial.println(linesensors.readings[ir]);
         }
       }
     }
@@ -302,12 +302,12 @@ class motion_c{
         is_end = false;
       }
       if(!is_end){
-        spin(2*PI);
+        spin(2*PI, 0.1);
         is_end = check_spin();
         if(millis() - calibration_ts > 10){
           calibration_ts = millis();
           for(int i=0; i < 3; i++){
-          linesensors.readSensorsADC();
+          linesensors.readSensorsDigital();
           }
         
           for(int ir = 0; ir < NUM_IRS; ir++){
