@@ -272,5 +272,9 @@ class motion_c{
       turn_finished = false;
       end_finished = false;
     }
+
+    void resend(){
+      sending = true;
+    }
     
 };
