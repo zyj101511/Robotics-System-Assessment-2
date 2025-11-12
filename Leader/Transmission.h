@@ -1,6 +1,6 @@
-byte data_to_send = 0b11110010;
+byte data_to_send = 0b10110010;
 volatile byte bit_index = 0;
-volatile boolean sending = true; 
+volatile boolean sending = false; 
 volatile boolean first_half_cycle = true;
 //static boolean last_emit_state = true;
 
@@ -80,7 +80,8 @@ void setupTimer3(){
 
   // For a cpu clock prescaler of 256:
   // Shift a 1 up to bit CS32(clock select, timer3, bit2)
-  TCCR3B = TCCR3B | (1 << CS32);
+  TCCR3B = TCCR3B | (1 << CS31);
+  TCCR3B = TCCR3B | (1 << CS30);
 
   // set compare match register to desired timer count
   // CPU Clock = 16000000
@@ -88,7 +89,7 @@ void setupTimer3(){
   // Timer freq = 16000000/256 = 62500
   // We can think of this as timer3 counting upto 62500 in 1 second.
   // compare match value = 62500 / 2
-  OCR3A = 62500;
+  OCR3A = 250;
 
   //enanle timer compare interrupt
   TIMSK3 = TIMSK3 | (1 << OCIE3A);
