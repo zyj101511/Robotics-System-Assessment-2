@@ -8,6 +8,7 @@
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
 #define NUM_IRS 5
+#define SPEED_EST 30
 
 Kinematics_c pose;
 Motors_c motors;
@@ -23,8 +24,8 @@ Filter_c filter_right;
 class motion_c{
   private:
 
-   unsigned long speed_timestap = 0;
-   unsigned long last_speed_timestap = 0;
+   unsigned long speed_ts = 0;
+   unsigned long last_speed_ts = 0;
    unsigned long pid_speed_control_ts = 0;
    unsigned long last_pid_speed_control_ts = 0;
    unsigned long calibration_ts = 0;
@@ -32,7 +33,7 @@ class motion_c{
    long last_count_LEFT;
    float left_pid_pwm;
    float right_pid_pwm;
-   float MAX_SPEED = 0.1f;
+   float MAX_SPEED = 4.f;
    bool stopping_init;
    unsigned long stopping_ts;
    unsigned long pose_est_ts;
@@ -47,6 +48,8 @@ class motion_c{
    float tracking_y_diff;
    float angle_diff;
    bool calibration_init;
+   float wheel_sep = 42.95; 
+   float wheel_radius = 16.2; 
      
   public:
     float left_speed;
@@ -63,10 +66,9 @@ class motion_c{
 
     // Used to setup kinematics, and to set a start position
     void initialise( float start_x, float start_y, float start_th ) {
-      setupTimer3();
       
-      speed_timestap = millis();
-      last_speed_timestap = millis();
+      speed_ts = millis();
+      last_speed_ts = millis();
       filter_left.initialise();
       filter_right.initialise();
       pid_speed_control_ts = millis();
@@ -89,31 +91,35 @@ class motion_c{
       moving_ts = millis();
       calibration_ts = millis();
       calibration_init = true;
-      pid_left.initialise(90, 0.52, 0.12);
-      pid_right.initialise(90, 0.5, 0.1);
-      pid_spin.initialise(90, 0.2, 0.1);
-      pid_track.initialise(90, 0.3, 0.0);
+      pid_left.initialise(15, 0.076, 0.03);
+      pid_right.initialise(15, 0.08, 0.01);
+      pid_spin.initialise(1, 0.02, 0.01);
+      pid_track.initialise(1, 0.03, 0.0);
       reset_pid();
       
     }
-  
+
+    void init_transmission(){
+      setupTransmission();
+    }
+    
     void speed_est(){
-      float kBaseScale = (33.0 * PI) / (10 * 358.3);
-      speed_timestap = millis();
-      unsigned long elapsed = speed_timestap - last_speed_timestap;
-      if (elapsed >= 10){
+      //unit is rps
+      speed_ts = millis();
+      unsigned long elapsed = speed_ts - last_speed_ts;
+      if (elapsed >= SPEED_EST){
         long diff_r = count_RIGHT - last_count_RIGHT;
         long diff_l = count_LEFT  - last_count_LEFT;
         last_count_RIGHT = count_RIGHT;
         last_count_LEFT  = count_LEFT;
 
-        float raw_r = diff_r * kBaseScale;
-        float raw_l = diff_l * kBaseScale;
+        float raw_r = (diff_r/358.3) * 1000 / elapsed;
+        float raw_l = (diff_l/358.3) * 1000 / elapsed;
 
         right_speed = filter_right.filter(raw_r, 0.2);
         left_speed  = filter_left.filter(raw_l,  0.2);
 
-        last_speed_timestap = speed_timestap;
+        last_speed_ts = speed_ts;
       }
     }
     
@@ -127,8 +133,8 @@ class motion_c{
     void pid_speed_control(float target_left_speed, float target_right_speed){
       pid_speed_control_ts = millis();
       if(pid_speed_control_ts - last_pid_speed_control_ts > 10){
-      left_pid_pwm = pid_left.update(target_left_speed, left_speed); 
-      right_pid_pwm = pid_right.update(target_right_speed, right_speed);  
+      left_pid_pwm = pid_left.update(target_left_speed, left_speed, 17); 
+      right_pid_pwm = pid_right.update(target_right_speed, right_speed, 17);  
       last_pid_speed_control_ts = pid_speed_control_ts;
       }
       motors.setPWM(left_pid_pwm, right_pid_pwm);
@@ -159,7 +165,7 @@ class motion_c{
       }
     }
     
-    void spin(float target_angle, float max_speed = 0.1){
+    void spin(float target_angle, float max_speed = 4.0){
       raw_diff = target_angle - pose.raw_theta;
       float demand_spin_speed = pid_spin.update(0, raw_diff);
       demand_spin_speed = motors.limit(demand_spin_speed, max_speed);
@@ -200,6 +206,16 @@ class motion_c{
       else{
         return false;
       }
+    }
+
+    float normalised_angle_diff(float diff){
+      if(diff > PI){
+        diff -= 2 * PI;
+      }
+      else if(diff < -PI){
+        diff += 2 * PI;
+      }
+      return diff;
     }
 
     void moving(float target_speed, unsigned long duration){  
@@ -268,6 +284,29 @@ class motion_c{
         return false;
       }
     }
+
+    float omega_conversion(float omega_rad){
+      return omega_rad / (2 * PI * wheel_radius);
+    }
+
+    void differential_contol(float velocity, float omega_rad){
+      float omega = omega_conversion(omega_rad);
+      float v_right = velocity + omega*wheel_sep;
+      float v_left = velocity - omega*wheel_sep;
+      pid_speed_control(v_left, v_right);
+    }
+
+    bool check_differential_control(float angle){
+      normalised_diff = normalised_angle_diff(angle - pose.theta);
+      if(abs(normalised_diff) <= SPIN_THRESHOLD){
+        reset_pid();
+        return true;
+      }
+      else{
+        return false;
+      }
+    }
+
     void reset_tracking(){
       turn_finished = false;
       end_finished = false;

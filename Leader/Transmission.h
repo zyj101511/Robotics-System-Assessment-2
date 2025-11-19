@@ -1,4 +1,4 @@
-byte data_to_send = 0b10110010;
+byte data_to_send = 0b10110110;
 volatile byte bit_index = 0;
 volatile boolean sending = false; 
 volatile boolean first_half_cycle = true;
@@ -11,7 +11,7 @@ volatile boolean first_half_cycle = true;
 
 ISR(TIMER3_COMPA_vect)
 {
-  // 发完所有位
+
   if (bit_index >= 8)
   {
     bit_index = 0;
@@ -37,11 +37,11 @@ ISR(TIMER3_COMPA_vect)
         // bit=0: 上半段灭
         DDRB &= ~(1 << PB7);
       }
-      first_half_cycle = false; // 进入下半段
+      first_half_cycle = false;
     }
     else
     {
-      // bit 周期下半段 → 翻转（保证中间跳变）
+      // bit 周期下半段
       if (current_bit == 1)
       {
         // bit=1: 下半段灭
@@ -57,14 +57,9 @@ ISR(TIMER3_COMPA_vect)
       bit_index++;
     }
   }
-  else
-  {
-    //DDRB |= (1 << PB7);
-    //PORTB &= ~(1 << PB7);
-  }
 }
 
-void setupTimer3(){
+void setupTransmission(){
 
   // disable global interrupts
   cli();
@@ -79,16 +74,16 @@ void setupTimer3(){
   TCCR3B = TCCR3B | (1 << WGM32);  // Waveform Generation Mode
 
   // For a cpu clock prescaler of 256:
-  // Shift a 1 up to bit CS32(clock select, timer3, bit2)
+  // Shift a 1 up to bit CS31 and CS30
   TCCR3B = TCCR3B | (1 << CS31);
   TCCR3B = TCCR3B | (1 << CS30);
 
   // set compare match register to desired timer count
   // CPU Clock = 16000000
-  // Prescaler = 256
-  // Timer freq = 16000000/256 = 62500
-  // We can think of this as timer3 counting upto 62500 in 1 second.
-  // compare match value = 62500 / 2
+  // Prescaler = 64
+  // Timer freq = 16000000/64 = 250000
+  // We can think of this as timer3 counting upto 250000 in 1 second.
+  // compare match value = 250000 / 1000, 1ms for 1 bit, 16ms for 1 byte
   OCR3A = 250;
 
   //enanle timer compare interrupt

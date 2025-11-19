@@ -19,7 +19,7 @@ extern volatile long count_LEFT;
 // performance. (see Labsheet 4)
  float count_per_rev = 358.3;   // From documentation - correct.
  float wheel_radius  = 16.2;    // mm, confirmed by user    // mm, confirmed by user    // mm, could vary - calibrate.
- float wheel_sep     = 42.95;     // mm, confirmed by user     // mm, confirmed by user    // mm, from centre of robot to wheel centre 
+ float wheel_sep     = 45;     // mm, confirmed by user     // mm, confirmed by user    // mm, from centre of robot to wheel centre 
                                      //     - could vary, calibrate
 
 // Take the circumference of the wheel and divide by the 
