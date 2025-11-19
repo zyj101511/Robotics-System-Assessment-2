@@ -1,17 +1,16 @@
 #include "Encoders.h"
 #include "Kinematics.h"
 #include "Motors.h"
-#include "LineSensors.h"
 #include "PID.h"
 #include "filter.h"
 
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
-#define NUM_IRS 7
+#define NUM_IRS 5
+#define SPEED_EST 30
 
 Kinematics_c pose;
 Motors_c motors;
-LineSensors_c linesensors;
 PID_c pid_left;
 PID_c pid_right;
 PID_c pid_spin;
@@ -24,8 +23,8 @@ Filter_c filter_right;
 class motion_c{
   private:
 
-   unsigned long speed_timestap = 0;
-   unsigned long last_speed_timestap = 0;
+   unsigned long speed_ts = 0;
+   unsigned long last_speed_ts = 0;
    unsigned long pid_speed_control_ts = 0;
    unsigned long last_pid_speed_control_ts = 0;
    unsigned long calibration_ts = 0;
@@ -33,7 +32,7 @@ class motion_c{
    long last_count_LEFT;
    float left_pid_pwm;
    float right_pid_pwm;
-   float MAX_SPEED = 0.1f;
+   float MAX_SPEED = 4.f;
    bool stopping_init;
    unsigned long stopping_ts;
    unsigned long pose_est_ts;
@@ -64,8 +63,9 @@ class motion_c{
 
     // Used to setup kinematics, and to set a start position
     void initialise( float start_x, float start_y, float start_th ) {
-      speed_timestap = millis();
-      last_speed_timestap = millis();
+      
+      speed_ts = millis();
+      last_speed_ts = millis();
       filter_left.initialise();
       filter_right.initialise();
       pid_speed_control_ts = millis();
@@ -88,31 +88,31 @@ class motion_c{
       moving_ts = millis();
       calibration_ts = millis();
       calibration_init = true;
-      linesensors.initialiseForADC();
-      pid_left.initialise(90, 0.52, 0.12);
-      pid_right.initialise(90, 0.5, 0.1);
-      pid_spin.initialise(90, 0.2, 0.1);
-      pid_track.initialise(90, 0.3, 0.0);
+      pid_left.initialise(1, 0.041, 0.1);
+      pid_right.initialise(1, 0.041, 0.1);
+      pid_spin.initialise(1, 0.02, 0.01);
+      pid_track.initialise(1, 0.03, 0.0);
       reset_pid();
+      
     }
-  
+    
     void speed_est(){
-      float kBaseScale = (33.0 * PI) / (10 * 358.3);
-      speed_timestap = millis();
-      unsigned long elapsed = speed_timestap - last_speed_timestap;
-      if (elapsed >= 10){
+      //unit is rps
+      speed_ts = millis();
+      unsigned long elapsed = speed_ts - last_speed_ts;
+      if (elapsed >= SPEED_EST){
         long diff_r = count_RIGHT - last_count_RIGHT;
         long diff_l = count_LEFT  - last_count_LEFT;
         last_count_RIGHT = count_RIGHT;
         last_count_LEFT  = count_LEFT;
 
-        float raw_r = diff_r * kBaseScale;
-        float raw_l = diff_l * kBaseScale;
+        float raw_r = (diff_r/358.3) * 1000 / elapsed;
+        float raw_l = (diff_l/358.3) * 1000 / elapsed;
 
         right_speed = filter_right.filter(raw_r, 0.2);
         left_speed  = filter_left.filter(raw_l,  0.2);
 
-        last_speed_timestap = speed_timestap;
+        last_speed_ts = speed_ts;
       }
     }
     
@@ -126,7 +126,7 @@ class motion_c{
     void pid_speed_control(float target_left_speed, float target_right_speed){
       pid_speed_control_ts = millis();
       if(pid_speed_control_ts - last_pid_speed_control_ts > 10){
-      left_pid_pwm = pid_left.update(target_left_speed, left_speed); 
+      left_pid_pwm = pid_left.update(target_left_speed, left_speed, 14); 
       right_pid_pwm = pid_right.update(target_right_speed, right_speed);  
       last_pid_speed_control_ts = pid_speed_control_ts;
       }
@@ -158,7 +158,7 @@ class motion_c{
       }
     }
     
-    void spin(float target_angle, float max_speed = 0.1){
+    void spin(float target_angle, float max_speed = 4.0){
       raw_diff = target_angle - pose.raw_theta;
       float demand_spin_speed = pid_spin.update(0, raw_diff);
       demand_spin_speed = motors.limit(demand_spin_speed, max_speed);
@@ -267,68 +267,10 @@ class motion_c{
         return false;
       }
     }
-
-
-    void detect_light(){
-      linesensors.calcCalibratedDigital(irsMIN, irsRANGE);
-    }
-
-    void print_irs(){
-      for(int ir = 0; ir < NUM_IRS; ir++){
-        if(ir < NUM_IRS-1){
-          Serial.print(linesensors.readings[ir]);
-          Serial.print(",");
-        }
-        else{
-          Serial.println(linesensors.readings[ir]);
-        }
-      }
-    }
-
     void reset_tracking(){
       turn_finished = false;
       end_finished = false;
     }
 
-    bool calibration(){
-      static bool is_end;
-      if(calibration_init){
-        for(int ir = 0; ir < NUM_IRS; ir++){
-        irsMAX[ir] = 0;
-        irsMIN[ir] = 1023; 
-        }
-        calibration_init = false;
-        calibration_ts = millis();
-        is_end = false;
-      }
-      if(!is_end){
-        spin(2*PI, 0.1);
-        is_end = check_spin();
-        if(millis() - calibration_ts > 10){
-          calibration_ts = millis();
-          for(int i=0; i < 3; i++){
-          linesensors.readSensorsDigital();
-          }
-        
-          for(int ir = 0; ir < NUM_IRS; ir++){
-            if(linesensors.readings[ir] > irsMAX[ir]){
-              irsMAX[ir] = linesensors.readings[ir];
-            }
-            if(linesensors.readings[ir] < irsMIN[ir]){
-              irsMIN[ir] = linesensors.readings[ir];
-            }
-          }
-        }
-      }
-      else{
-        motors.setPWM(0.0, 0.0);
-        reset_pid();
-        for(int ir = 0; ir < NUM_IRS; ir++){
-          irsRANGE[ir] = irsMAX[ir] - irsMIN[ir];
-        }
-        return true;
-      }
-      return false;
-    }
     
 };

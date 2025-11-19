@@ -48,7 +48,7 @@ class PID_c {
       feedback = 0;
       ms_last_t = millis();
     }
-    float update( float demand, float measurement ) {
+    float update( float demand, float measurement, float threshold = 0) {
       float error;
       unsigned long ms_now_t;
       unsigned long ms_dt;
@@ -71,7 +71,6 @@ class PID_c {
 
       // Calculate error signal.
       error = demand - measurement;
-      last_error = error;
 
       // P term, nice and easy
       p_term = p_gain * error;
@@ -84,8 +83,20 @@ class PID_c {
 
       diff_error = (error - last_error) / float_dt;
       d_term = diff_error * d_gain;
+      
+      last_error = error;
 
       feedback = p_term + i_term + d_term;
+      if (feedback > 0){
+        if (feedback < threshold){
+          feedback = threshold;
+        } 
+      }
+      else{
+        if (feedback > -threshold){
+          feedback = -threshold;
+        }
+      }
 
       // done
       return feedback;

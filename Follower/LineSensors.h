@@ -1,130 +1,100 @@
-#ifndef _LINESENSORS_H
-#define _LINESENSORS_H
-
-#define NUM_SENSORS 7
 #define EMIT_PIN 11
-const int sensor_pins[ NUM_SENSORS ] = { A11, A0, A2, A3, A4, 4, 5};
+#define NUM_SENSORS 5
+const int sensor_pins[NUM_SENSORS] = {A11, A0, A2, A3, A4};
 
 
-// Class to operate the linesensors.
-class LineSensors_c {
+class IR_c {
+
+  
+  private:
+    enum IR_STATE {CHARGE, WAIT, DISCHARGE, CHECK};
+    IR_STATE ir_state;
+    unsigned long ts;
+    unsigned long start_time;
+
+    unsigned long elapsed[NUM_SENSORS];
+    unsigned long last_elapsed[NUM_SENSORS];
+    unsigned long norm_elapsed[NUM_SENSORS];
+    bool done[NUM_SENSORS];
+    int done_count;
+    unsigned long time_ts;
   
   public:
-
-    float readings[ NUM_SENSORS ];  // for ADC 
-    float minimum[ NUM_SENSORS ];
-    float maximum[ NUM_SENSORS ];
-    float scaling[ NUM_SENSORS ];
-
-    float calibrated[NUM_SENSORS];
-    bool readings_bool[ NUM_SENSORS ];
-
-    bool is_charging;
-    unsigned long charging_ts;
-    unsigned long discharging_ts;
-    bool discharging_done[NUM_SENSORS];
-
-    // Constructor, must exist.
-    LineSensors_c() {
-    }
-
-
-    void initialiseForADC() {
-
-      pinMode( EMIT_PIN, INPUT );  // turn IR off
-      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
-        pinMode( sensor_pins[sensor], INPUT_PULLUP );
-      }
-      
-    } // End of initialiseForADC()
-
-    void readSensorsADC() {
-
-      // initialiseForADC();
-
-      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
-        readings[sensor] = analogRead(sensor_pins[sensor]);
-      }
-
-    }
-
-   
-    void calcCalibratedADC(int sensorsMIN[NUM_SENSORS], int sensorsRANGE[NUM_SENSORS]){
-
-      // Get latest readings (raw values)
-      readSensorsADC();
-
-      for( int sensor = 0; sensor < NUM_SENSORS; sensor++ ) {
-        calibrated[sensor] = (readings[sensor] - sensorsMIN[sensor]) / (float)sensorsRANGE[sensor];
-        if(calibrated[sensor] > 0.7){
-          readings_bool[sensor] = true;
-        }
-        else{
-          readings_bool[sensor] = false;
-        }
-      }
-      
-    } // End of calcCalibratedADC()
-
-
-        // Part of the Advanced Exercises for Labsheet 2
-    void initialiseForDigital() {
-      pinMode( EMIT_PIN, INPUT );
-      is_charging = true;
-      charging_ts = 0;
-      discharging_ts = 0;
-      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
-        discharging_done[sensor] = false; 
-      }
-    } // End of initialiseForDigital()
-    
-    void readSensorsDigital() {
-      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
-        // start cjharging
-        if(is_charging){
-          pinMode(sensor_pins[sensor], OUTPUT);
-          digitalWrite(sensor_pins[sensor], HIGH);
-          charging_ts = micros();
-          is_charging = !is_charging; 
-        }
-        // discharging
-        if(!is_charging && micros() - charging_ts >= 20){
-          discharging_ts = micros();
-          pinMode(sensor_pins[sensor], INPUT);
-          int elapsed;
-          while(digitalRead(sensor_pins[sensor]) != LOW && elapsed <= 2000){
-            elapsed = micros() - discharging_ts;
-          }
-          // unsigned long elapsed = micros() - discharge_start_ts;
-          if(digitalRead(sensor_pins[sensor]) == LOW){  // finished or overtime
-            readings[sensor] = elapsed;
-          }
-          else if(elapsed >= 2000){
-            //elapsed = 2000;
-            readings[sensor] = elapsed;
-          }
-          is_charging = !is_charging; 
-        }
-        delayMicroseconds(30);
-      }
-
-    } // End of readSensorsDigital()
-
-    void calcCalibratedDigital(int sensorsMIN[NUM_SENSORS], int sensorsRANGE[NUM_SENSORS]){
-      readSensorsDigital();
-      for(int sensor = 0; sensor < NUM_SENSORS; sensor++){
-        calibrated[sensor] = (readings[sensor] - sensorsMIN[sensor]) / (float)sensorsRANGE[sensor];
-        if(readings[sensor] < 1500){
-          readings_bool[sensor] = false;  // white
-        }
-        else{
-          readings_bool[sensor] = true;  // black
-        }
+    IR_c(){
+      ir_state = CHARGE;
+      done_count = 0;
+      for(int i=0;i<NUM_SENSORS;i++){
+        elapsed[i] = 0;
+        last_elapsed[i] = 0;
+        norm_elapsed[i] = 0;
+        done[i] = false;
       }
     }
 
+    void IR_Digital() {
+  
+      switch(ir_state){
+        case CHARGE:  // charging  
+          for(int i=0;i<NUM_SENSORS;i++){
+            pinMode(sensor_pins[i], OUTPUT);
+            digitalWrite(sensor_pins[i], HIGH);
+          }
+          ts = micros();
+          time_ts = millis();
+          ir_state = WAIT;
+          break;
+
+        case WAIT:  // wait 30us
+          if (micros() - ts >= 30){
+            for(int i=0;i<NUM_SENSORS;i++){
+              pinMode(sensor_pins[i], INPUT);
+            }
+
+            start_time = micros();
+            for(int i=0;i<NUM_SENSORS;i++){
+              done[i] = false;
+              elapsed[i] = 0;
+            }
+            done_count = 0;
+
+            ir_state = DISCHARGE;
+          }
+          break;
+
+        case DISCHARGE: // check discharge
+          for(int i=0;i<NUM_SENSORS;i++){
+            if(!done[i] && digitalRead(sensor_pins[i]) == LOW){
+              elapsed[i] = micros() - start_time;
+              done[i] = true;
+              done_count++;
+            }
+          }
+
+          if (done_count == NUM_SENSORS){
+            ir_state = CHECK;
+          }
+          break;
+
+        case CHECK: // finished and print
+        
+          for(int i=0;i<NUM_SENSORS;i++){
+            norm_elapsed[i] = (1 * elapsed[i] + 9 * last_elapsed[i]) / 10;
+          }
+        
+          for(int i=0;i<NUM_SENSORS;i++){
+            Serial.print(norm_elapsed[i]);
+            if(i < NUM_SENSORS - 1){
+              Serial.print(",");
+            }
+          }
+          Serial.println();
+          //unsigned long time_stop = millis() - time_ts;
+          //Serial.println(time_stop);
+          for(int i=0;i<NUM_SENSORS;i++){
+            last_elapsed[i] = elapsed[i];
+          }
+          ir_state = CHARGE;  // restart cycle
+          break;
+      }
+    }
 };
-
-
-
-#endif
