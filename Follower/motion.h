@@ -3,21 +3,23 @@
 #include "Motors.h"
 #include "PID.h"
 #include "filter.h"
+#include "LineSensors.h"
 
 #define SPIN_THRESHOLD 0.05
 #define TRACKING_TORLERANCE 8
-#define NUM_IRS 5
+#define NUM_SENSORS 5
 #define SPEED_EST 30
 
 Kinematics_c pose;
 Motors_c motors;
 PID_c pid_left;
 PID_c pid_right;
-PID_c pid_spin;
-PID_c pid_track; 
+PID_c pid_distance;
+PID_c pid_direction;
+PID_c  pid_turn;
 Filter_c filter_left;
 Filter_c filter_right;
-
+IR_c ir;
 
 
 class motion_c{
@@ -27,7 +29,6 @@ class motion_c{
    unsigned long last_speed_ts = 0;
    unsigned long pid_speed_control_ts = 0;
    unsigned long last_pid_speed_control_ts = 0;
-   unsigned long calibration_ts = 0;
    long last_count_RIGHT;
    long last_count_LEFT;
    float left_pid_pwm;
@@ -46,16 +47,20 @@ class motion_c{
    float tracking_x_diff;
    float tracking_y_diff;
    float angle_diff;
-   bool calibration_init;
+   bool is_first_entry_calibration;
+   float adjust_speed;
+   float direction_speed;
+   float turn_speed;
      
   public:
     float left_speed;
     float right_speed;
+    float readings[NUM_SENSORS];
 
     // arrays for IR-sensor calibration
-    int irsMAX[NUM_IRS];
-    int irsMIN[NUM_IRS];
-    int irsRANGE[NUM_IRS];
+    unsigned long irsMAX[NUM_SENSORS];
+    unsigned long irsMIN[NUM_SENSORS];
+    unsigned long irsRANGE[NUM_SENSORS];
     
     motion_c(){
     }
@@ -86,12 +91,12 @@ class motion_c{
       stopping_init = true;
       end_finished = false;
       moving_ts = millis();
-      calibration_ts = millis();
-      calibration_init = true;
-      pid_left.initialise(1, 0.041, 0.1);
-      pid_right.initialise(1, 0.041, 0.1);
-      pid_spin.initialise(1, 0.02, 0.01);
-      pid_track.initialise(1, 0.03, 0.0);
+      is_first_entry_calibration = true;
+      pid_left.initialise(25, 0.075, 0.01);
+      pid_right.initialise(25, 0.075, 0.01);
+      pid_distance.initialise(50, 0.5, 0.2);
+      pid_direction.initialise(1, 0.2, 0.2);
+      pid_turn.initialise(1, 0.4, 0.2);
       reset_pid();
       
     }
@@ -100,7 +105,7 @@ class motion_c{
       //unit is rps
       speed_ts = millis();
       unsigned long elapsed = speed_ts - last_speed_ts;
-      if (elapsed >= SPEED_EST){
+      if (elapsed >= 30){
         long diff_r = count_RIGHT - last_count_RIGHT;
         long diff_l = count_LEFT  - last_count_LEFT;
         last_count_RIGHT = count_RIGHT;
@@ -119,8 +124,9 @@ class motion_c{
     void reset_pid(){
       pid_left.reset();
       pid_right.reset();
-      pid_spin.reset();
-      pid_track.reset();
+      pid_distance.reset();
+      pid_direction.reset();
+      pid_turn.reset();
     }
     
     void pid_speed_control(float target_left_speed, float target_right_speed){
@@ -151,53 +157,10 @@ class motion_c{
     }
     void pose_est(){
       pose_est_ts = millis();
-      if(pose_est_ts - last_pose_est_ts > 5){
+      if(pose_est_ts - last_pose_est_ts > 30){
         pose.update();
         //print_global_coordinates();
         last_pose_est_ts = pose_est_ts;
-      }
-    }
-    
-    void spin(float target_angle, float max_speed = 4.0){
-      raw_diff = target_angle - pose.raw_theta;
-      float demand_spin_speed = pid_spin.update(0, raw_diff);
-      demand_spin_speed = motors.limit(demand_spin_speed, max_speed);
-      pid_speed_control(demand_spin_speed, -demand_spin_speed);
-    }
-
-    bool check_spin(){
-      if(abs(raw_diff) <= SPIN_THRESHOLD){
-        stopping(100);
-        reset_pid();
-        return true;
-      }
-      else{
-        return false;
-      }
-    }
-
-    void turn(float target_angle){
-      normalised_diff = target_angle - pose.theta;
-      
-      if(normalised_diff > PI){
-        normalised_diff -= 2 * PI;
-      }
-      else if(normalised_diff < -PI){
-        normalised_diff += 2 * PI;
-      }
-      float demand_turn_speed = pid_spin.update(0, normalised_diff);
-      demand_turn_speed = motors.limit(demand_turn_speed, MAX_SPEED);
-      pid_speed_control(demand_turn_speed, -demand_turn_speed);
-    }
-
-    bool check_turn(){
-      if(abs(normalised_diff) <= SPIN_THRESHOLD){
-        stopping(100);
-        reset_pid();
-        return true;
-      }
-      else{
-        return false;
       }
     }
 
@@ -219,58 +182,98 @@ class motion_c{
       }
     }
 
-    void tracking(float target_x, float target_y){
-      tracking_x_diff = target_x - pose.x;
-      tracking_y_diff = target_y - pose.y;
-      float target_angle = atan2(tracking_y_diff, tracking_x_diff);
-      float distance = tracking_x_diff * tracking_x_diff;
-      distance += tracking_y_diff * tracking_y_diff;
-      distance = sqrt(distance);
-      angle_diff = target_angle - pose.theta;
-      if(angle_diff > PI){
-        angle_diff -= 2 * PI;
+    float normalised_angle_diff(float diff){
+      if(diff > PI){
+        diff -= 2 * PI;
       }
-      else if(angle_diff < -PI){
-        angle_diff += 2 * PI;
+      else if(diff < -PI){
+        diff += 2 * PI;
       }
-      
-      if (!turn_finished){
-        turn(target_angle);
-        turn_finished = check_turn();
-      }
-      else if(turn_finished && !end_finished){
-        //Serial.println(end_finished);
-        // stopping(5000);
-        end_finished = true;
-        reset_pid();
-      }
-      else if (turn_finished && end_finished){
-        float turn_speed = pid_spin.update(0, angle_diff);
-        float tracking_speed = pid_track.update(distance, 0);
-        turn_speed = motors.limit(turn_speed, MAX_SPEED);
-        tracking_speed = motors.limit(tracking_speed, MAX_SPEED);
-        pid_speed_control(tracking_speed + 0.45*turn_speed, tracking_speed - 0.45*turn_speed);
-      }
+      return diff;
     }
 
-    bool check_tracking(){
-      //if(abs(normalised_diff) < SPIN_THRESHOLD){
-        if(abs(tracking_x_diff) < TRACKING_TORLERANCE && abs(tracking_y_diff) < TRACKING_TORLERANCE){
-          //motors.setPWM(0.0, 0.0);
-          turn_finished = false;
-          end_finished = false;
-          reset_pid();
-          return true;
-        } 
-      //}
+    float omega_conversion(float omega_rad){
+      return omega_rad / (2 * PI * wheel_radius);
+    }
+
+    void differential_contol(float velocity, float omega_rad){
+      float omega = omega_conversion(omega_rad);
+      float v_right = velocity + omega*wheel_sep;
+      float v_left = velocity - omega*wheel_sep;
+      pid_speed_control(v_left, v_right);
+    }
+
+    bool check_differential_control(float angle){
+      normalised_diff = normalised_angle_diff(angle - pose.theta);
+      if(abs(normalised_diff) <= SPIN_THRESHOLD){
+        reset_pid();
+        return true;
+      }
       else{
         return false;
       }
     }
-    void reset_tracking(){
-      turn_finished = false;
-      end_finished = false;
+
+    void calibrated_IR_Digital(){
+      ir.calibrated_IR_Digital(irsMIN, irsRANGE);
+      for(int i=0; i < NUM_SENSORS; i++){
+        readings[i] = ir.filter_elapsed[i]; 
+      }
     }
 
+    void distance_adjust(){
+      float accumulator = 0;
+      for(int i = 1; i < NUM_SENSORS-1; i++){
+        accumulator += ir.filter_elapsed[i];
+      }
+      float average = accumulator/3;
+      adjust_speed = pid_distance.update(average, 0.07);
+      if (adjust_speed < 0.75){
+        adjust_speed = 0.75;
+      }
+      adjust_speed = motors.limit(adjust_speed, 0.85);
+    }
+
+    void direction_adjust(){
+      float accumulator = 0;
+      accumulator -= readings[1];
+      accumulator += readings[3];
+
+      if(accumulator < 0){
+        //右拐，比例因子=accumulator
+        accumulator = -0.02*accumulator;
+        direction_speed = pid_direction.update(accumulator, 0);
+        direction_speed = motors.limit(adjust_speed, 0.1);
+        //pid_speed_control(adjust_speed + direction_speed, adjust_speed - direction_speed);
+      }
+      else if(accumulator > 0){
+        //左拐，比例因子=accumulator
+        accumulator = 0.02*accumulator;
+        direction_speed = pid_direction.update(accumulator, 0);
+        direction_speed = motors.limit(adjust_speed, 0.1);
+        //pid_speed_control(adjust_speed - direction_speed, adjust_speed + direction_speed); 
+      }
+    }
+
+    void turn_adjust(){
+      float accumulator = 0;
+      accumulator -= readings[0];
+      accumulator += readings[4];
+
+      if(accumulator < 0){
+        //右拐，比例因子=accumulator
+        accumulator = -0.05*accumulator;
+        turn_speed = pid_turn.update(accumulator, 0);
+        turn_speed = motors.limit(turn_speed, 0.1);
+        pid_speed_control(adjust_speed + direction_speed + turn_speed, adjust_speed - direction_speed - turn_speed);
+      }
+      else if(accumulator > 0){
+        //左拐，比例因子=accumulator
+        accumulator = 0.05*accumulator;
+        direction_speed = pid_turn.update(accumulator, 0);
+        direction_speed = motors.limit(turn_speed, 0.4);
+        pid_speed_control(adjust_speed - direction_speed - turn_speed, adjust_speed + direction_speed + turn_speed); 
+      }
+    }
     
 };

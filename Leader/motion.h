@@ -107,7 +107,7 @@ class motion_c{
       //unit is rps
       speed_ts = millis();
       unsigned long elapsed = speed_ts - last_speed_ts;
-      if (elapsed >= SPEED_EST){
+      if (elapsed >= 30){
         long diff_r = count_RIGHT - last_count_RIGHT;
         long diff_l = count_LEFT  - last_count_LEFT;
         last_count_RIGHT = count_RIGHT;
@@ -132,7 +132,7 @@ class motion_c{
     
     void pid_speed_control(float target_left_speed, float target_right_speed){
       pid_speed_control_ts = millis();
-      if(pid_speed_control_ts - last_pid_speed_control_ts > 10){
+      if(pid_speed_control_ts - last_pid_speed_control_ts > 30){
       left_pid_pwm = pid_left.update(target_left_speed, left_speed, 17); 
       right_pid_pwm = pid_right.update(target_right_speed, right_speed, 17);  
       last_pid_speed_control_ts = pid_speed_control_ts;
@@ -165,58 +165,6 @@ class motion_c{
       }
     }
     
-    void spin(float target_angle, float max_speed = 4.0){
-      raw_diff = target_angle - pose.raw_theta;
-      float demand_spin_speed = pid_spin.update(0, raw_diff);
-      demand_spin_speed = motors.limit(demand_spin_speed, max_speed);
-      pid_speed_control(demand_spin_speed, -demand_spin_speed);
-    }
-
-    bool check_spin(){
-      if(abs(raw_diff) <= SPIN_THRESHOLD){
-        stopping(100);
-        reset_pid();
-        return true;
-      }
-      else{
-        return false;
-      }
-    }
-
-    void turn(float target_angle){
-      normalised_diff = target_angle - pose.theta;
-      
-      if(normalised_diff > PI){
-        normalised_diff -= 2 * PI;
-      }
-      else if(normalised_diff < -PI){
-        normalised_diff += 2 * PI;
-      }
-      float demand_turn_speed = pid_spin.update(0, normalised_diff);
-      demand_turn_speed = motors.limit(demand_turn_speed, MAX_SPEED);
-      pid_speed_control(demand_turn_speed, -demand_turn_speed);
-    }
-
-    bool check_turn(){
-      if(abs(normalised_diff) <= SPIN_THRESHOLD){
-        stopping(100);
-        reset_pid();
-        return true;
-      }
-      else{
-        return false;
-      }
-    }
-
-    float normalised_angle_diff(float diff){
-      if(diff > PI){
-        diff -= 2 * PI;
-      }
-      else if(diff < -PI){
-        diff += 2 * PI;
-      }
-      return diff;
-    }
 
     void moving(float target_speed, unsigned long duration){  
       if(moving_init){
@@ -236,53 +184,14 @@ class motion_c{
       }
     }
 
-    void tracking(float target_x, float target_y){
-      tracking_x_diff = target_x - pose.x;
-      tracking_y_diff = target_y - pose.y;
-      float target_angle = atan2(tracking_y_diff, tracking_x_diff);
-      float distance = tracking_x_diff * tracking_x_diff;
-      distance += tracking_y_diff * tracking_y_diff;
-      distance = sqrt(distance);
-      angle_diff = target_angle - pose.theta;
-      if(angle_diff > PI){
-        angle_diff -= 2 * PI;
+    float normalised_angle_diff(float diff){
+      if(diff > PI){
+        diff -= 2 * PI;
       }
-      else if(angle_diff < -PI){
-        angle_diff += 2 * PI;
+      else if(diff < -PI){
+        diff += 2 * PI;
       }
-      
-      if (!turn_finished){
-        turn(target_angle);
-        turn_finished = check_turn();
-      }
-      else if(turn_finished && !end_finished){
-        //Serial.println(end_finished);
-        // stopping(5000);
-        end_finished = true;
-        reset_pid();
-      }
-      else if (turn_finished && end_finished){
-        float turn_speed = pid_spin.update(0, angle_diff);
-        float tracking_speed = pid_track.update(distance, 0);
-        turn_speed = motors.limit(turn_speed, MAX_SPEED);
-        tracking_speed = motors.limit(tracking_speed, MAX_SPEED);
-        pid_speed_control(tracking_speed + 0.45*turn_speed, tracking_speed - 0.45*turn_speed);
-      }
-    }
-
-    bool check_tracking(){
-      //if(abs(normalised_diff) < SPIN_THRESHOLD){
-        if(abs(tracking_x_diff) < TRACKING_TORLERANCE && abs(tracking_y_diff) < TRACKING_TORLERANCE){
-          //motors.setPWM(0.0, 0.0);
-          turn_finished = false;
-          end_finished = false;
-          reset_pid();
-          return true;
-        } 
-      //}
-      else{
-        return false;
-      }
+      return diff;
     }
 
     float omega_conversion(float omega_rad){
@@ -305,11 +214,6 @@ class motion_c{
       else{
         return false;
       }
-    }
-
-    void reset_tracking(){
-      turn_finished = false;
-      end_finished = false;
     }
 
     void resend(){

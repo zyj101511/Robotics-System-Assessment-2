@@ -17,7 +17,7 @@ void setup () {
   
   //motion.init_transmission();
   
-  currentState = WAIT;
+  currentState = FORWARD;
   pinMode (11, OUTPUT);
   digitalWrite (11, LOW);
   start_ts = millis();
@@ -30,10 +30,10 @@ void loop () {
   current_ts = millis();
   
   // Sending data every 50ms
-  /*if(current_ts - last_send >= 50){
+  if(current_ts - last_send >= 100){
     motion.resend();
     last_send = current_ts;
-  }*/
+  }
 
   switch (currentState){
     case WAIT:
@@ -73,21 +73,21 @@ void wait(unsigned long start){
 }
 
 void forward (){
-  motion.moving(1, 3000);
+  motion.moving(-0.8, 3000);
   if(motion.check_moving ()){
     currentState = TURN;
   }
 }
 
 void turn (){
-  motion.differential_contol (1, 0.4);
+  motion.differential_contol (-0.8, 0.4);
   if(motion.check_differential_control(PI/2)){
     currentState = FORWARD_2;
   }
 }
 
 void forward_2 (){
-  motion.moving (1, 3000);
+  motion.moving (-0.8, 6000);
   if(motion.check_moving ()){
     currentState = STOP;
   }
